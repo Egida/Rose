@@ -1,15 +1,21 @@
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
 use actix_web::{web, App, HttpServer};
 
-async fn hello() -> String {
-    "Hello world".to_string()
-}
+use crate::Attack;
 
-pub async fn run(server_addr: &str) {
+mod routers;
+
+pub async fn run(server_addr: &str, attacks: Arc<Mutex<Vec<Attack>>>) {
    println!("Webserver listening: {}", server_addr);
 
-   HttpServer::new(|| {
+   let attacks_webdata = web::Data::new(attacks);
+
+   HttpServer::new(move || {
        App::new()
-           .route("/", web::get().to(hello))
+          .app_data(attacks_webdata.clone())
+         .route("/", web::get().to(routers::agent_register))
    })
    .disable_signals()
    .bind(server_addr)
