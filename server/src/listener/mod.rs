@@ -15,7 +15,8 @@ pub async fn run(server_addr: &str, attacks: Arc<Mutex<Vec<Attack>>>) {
    HttpServer::new(move || {
        App::new()
           .app_data(attacks_webdata.clone())
-         .route("/", web::get().to(routers::agent_register))
+         .route("/reg", web::get().to(routers::agent_register))
+         .route("/target", web::get().to(routers::get_target))
    })
    .disable_signals()
    .bind(server_addr)

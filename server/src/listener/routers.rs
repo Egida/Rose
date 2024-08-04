@@ -1,4 +1,3 @@
-
 pub async fn agent_register() -> String {
     "Hello world".to_string()
 }
