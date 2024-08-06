@@ -28,6 +28,8 @@ struct Attack {
     name: String                // IP/Domain/URL etc 
 }
 
+// TODO: add commands like: list etc.
+
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
     let mut config_string = String::new();

@@ -1,3 +1,4 @@
+use std::hash::RandomState;
 use std::ops::Deref;
 use std::{collections::HashMap, sync::Arc};
 use std::net::SocketAddr;
@@ -17,20 +18,21 @@ use crate::{Attack, ProfileConfig};
 #[derive(Debug, Serialize)]
 enum ClientError {
     InvalidJsonFormat,
-    InvalidJsonData,
+    InvalidJsonDatatype,
+    NotFoundJsonParameter,
     Invalidusername,
     InvalidPassword,
 }
 
 #[derive(Serialize, Deserialize)]
-enum Methods {
+enum Method {
     Auth,
-    ServerInfo
+    Jobs
 }
 
 #[derive(Serialize, Deserialize)]
 struct RequestJson<T> {
-    method: Methods,
+    method: Method,
     parameters: HashMap<String, T>
 }
 
@@ -64,11 +66,11 @@ fn auth(profile: Arc<ProfileConfig>, username: String, password: String) -> Resu
 async fn handle_connection(
         stream: TcpStream, 
         addr: SocketAddr,
-        clients_autheticated: Arc<Mutex<Vec<SocketAddr>>>,
         profile: Arc<ProfileConfig>,
         _attacks: Arc<Mutex<Vec<Attack>>>
     ) {
     println!("New connection: {}", addr);
+    let mut authed = false;
     let ws_stream = tokio_tungstenite::accept_async(stream)
         .await
         .unwrap();
@@ -81,11 +83,37 @@ async fn handle_connection(
 
         match msg {
             Message::Text(data) => {
+                /*
+                JSON Structure
+                    {
+                        method: Method
+                        parameters: Vec<String>
+                    }
+                */
+
+                fn find_parameter(parameters: HashMap<String, Value, RandomState>, parameter_name: &str) -> Result<String, ErrorResponseJson> { 
+                    match parameters.get(parameter_name) {
+                        Some(r) => {
+                            if let Some(s) = r.as_str() {
+                                Ok(s.to_string())
+                            } else {
+                                Err(ErrorResponseJson { 
+                                    error: ClientError::InvalidJsonDatatype, 
+                                    message: "Invalid JSON datatype".to_string() 
+                                })
+                            }
+                        },
+                        None => {
+                            Err(ErrorResponseJson {error: ClientError::NotFoundJsonParameter, message: format!("'{}' paramenter not found", parameter_name)})
+                        }
+                    }
+                }
+
                 let msgjson: RequestJson<Value> = match serde_json::from_str(&data) {
                     Ok(r) => r,
-                    Err(_e) => {
+                    Err(e) => {
                         let error  = serde_json::to_string(
-                            &ErrorResponseJson {error: ClientError::InvalidJsonFormat, message: "Invalid JSON format".to_string()}
+                            &ErrorResponseJson {error: ClientError::InvalidJsonFormat, message: e.to_string()}
                         ).unwrap();
 
                         writer.send(Message::Text(error)).await.unwrap();
@@ -94,33 +122,24 @@ async fn handle_connection(
                 };
 
                 match msgjson.method {
-                    Methods::Auth => {
-                        let username = match msgjson.parameters.get("username") {
-                            Some(r) => r.as_str().unwrap().to_string(),
-                            None => {
-                                let error = serde_json::to_string(
-                                    &ErrorResponseJson {error: ClientError::InvalidJsonData, message: "Invalid JSON data".to_string()}
-                                ).unwrap();
-
-                                writer.send(Message::Text(error)).await.unwrap();
+                    Method::Auth => {
+                        let username = match find_parameter(msgjson.parameters.to_owned(), "username") {
+                            Ok(r) => r,
+                            Err(e) => {
+                                writer.send(Message::Text(serde_json::to_string(&e).unwrap())).await.unwrap();
                                 break;
-                            },
+                            }
                         };
-
-                        let password = match msgjson.parameters.get("password") {
-                            Some(r) => r.as_str().unwrap().to_string(),
-                            None => {
-                                let error = serde_json::to_string(
-                                    &ErrorResponseJson {error: ClientError::InvalidJsonData, message: "Invalid JSON data".to_string()}
-                                ).unwrap();
-
-                                writer.send(Message::Text(error)).await.unwrap();
+                        let password = match find_parameter(msgjson.parameters, "password") {
+                            Ok(r) => r,
+                            Err(e) => {
+                                writer.send(Message::Text(serde_json::to_string(&e).unwrap())).await.unwrap();
                                 break;
                             }
                         };
 
                         match auth(profile_clone, username, password) {
-                            Ok(_) => clients_autheticated.lock().await.push(addr),
+                            Ok(_) => authed = true,
                             Err(e) => {
                                 let message = match e {
                                     ClientError::Invalidusername => "Invalid username".to_string(),
@@ -141,7 +160,11 @@ async fn handle_connection(
                                 serde_json::to_string(&ResponseJson {data: "ok".to_string()}).unwrap())
                             ).await.unwrap();
                     },
-                    Methods::ServerInfo => (),
+                    Method::Jobs => {
+                        if !authed {
+                            ()
+                        }
+                    },
                 }
             },
             Message::Binary(_data) => (),
@@ -154,7 +177,6 @@ async fn handle_connection(
 }
 
 pub async fn run(server_addr: &str, profile: ProfileConfig, attacks: Arc<Mutex<Vec<Attack>>>) {
-    let clients_autheticated: Arc<Mutex<Vec<SocketAddr>>> = Arc::new(Mutex::new(Vec::new()));
     let socket = TcpListener::bind(server_addr).await;
     let listener = socket.unwrap();
 
@@ -165,12 +187,10 @@ pub async fn run(server_addr: &str, profile: ProfileConfig, attacks: Arc<Mutex<V
     while let Ok((stream, client_addr)) = listener.accept().await {
         let attacks_clone = Arc::clone(&attacks);
         let profile_arc_clone = Arc::clone(&profile_arc);
-        let clients_autheticated_clone = Arc::clone(&clients_autheticated);
 
         tokio::spawn(handle_connection(
                 stream, 
                 client_addr,
-                clients_autheticated_clone,
                 profile_arc_clone,
                 attacks_clone)
             );
