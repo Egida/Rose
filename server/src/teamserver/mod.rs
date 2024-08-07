@@ -187,22 +187,20 @@ async fn handle_connection(
     }
 }
 
-pub async fn run(server_addr: &str, profile: ProfileConfig, jobs: Arc<Mutex<Vec<Job>>>) {
+pub async fn run(server_addr: &str, profile: Arc<ProfileConfig>, jobs: Arc<Mutex<Vec<Job>>>) {
     let socket = TcpListener::bind(server_addr).await;
     let listener = socket.unwrap();
 
     println!("Teamserver listening on: {}", server_addr);
 
-    let profile_arc = Arc::new(profile);
-
     while let Ok((stream, client_addr)) = listener.accept().await {
         let jobs_clone = Arc::clone(&jobs);
-        let profile_arc_clone = Arc::clone(&profile_arc);
+        let profile_clone = Arc::clone(&profile);
 
         tokio::spawn(handle_connection(
                 stream, 
                 client_addr,
-                profile_arc_clone,
+                profile_clone,
                 jobs_clone)
             );
     }
