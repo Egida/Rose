@@ -13,7 +13,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
 use tokio_tungstenite::tungstenite::protocol::Message;
 
-use crate::{Attack, ProfileConfig};
+use crate::{Job, ProfileConfig};
 
 #[derive(Debug, Serialize)]
 enum ClientError {
@@ -22,6 +22,7 @@ enum ClientError {
     NotFoundJsonParameter,
     Invalidusername,
     InvalidPassword,
+    NoAuth
 }
 
 #[derive(Serialize, Deserialize)]
@@ -67,7 +68,7 @@ async fn handle_connection(
         stream: TcpStream, 
         addr: SocketAddr,
         profile: Arc<ProfileConfig>,
-        _attacks: Arc<Mutex<Vec<Attack>>>
+        jobs: Arc<Mutex<Vec<Job>>>
     ) {
     println!("New connection: {}", addr);
     let mut authed = false;
@@ -104,7 +105,7 @@ async fn handle_connection(
                             }
                         },
                         None => {
-                            Err(ErrorResponseJson {error: ClientError::NotFoundJsonParameter, message: format!("'{}' paramenter not found", parameter_name)})
+                            Err(ErrorResponseJson { error: ClientError::NotFoundJsonParameter, message: format!("'{}' paramenter not found", parameter_name) })
                         }
                     }
                 }
@@ -113,7 +114,7 @@ async fn handle_connection(
                     Ok(r) => r,
                     Err(e) => {
                         let error  = serde_json::to_string(
-                            &ErrorResponseJson {error: ClientError::InvalidJsonFormat, message: e.to_string()}
+                            &ErrorResponseJson { error: ClientError::InvalidJsonFormat, message: e.to_string() }
                         ).unwrap();
 
                         writer.send(Message::Text(error)).await.unwrap();
@@ -148,7 +149,7 @@ async fn handle_connection(
                                 };
 
                                 let error = serde_json::to_string(
-                                    &ErrorResponseJson {error: e, message: message.to_string()}
+                                    &ErrorResponseJson { error: e, message: message.to_string() }
                                 );
 
                                 writer.send(Message::Text(error.unwrap())).await.unwrap();
@@ -157,13 +158,23 @@ async fn handle_connection(
                         }
 
                         writer.send(Message::Text(
-                                serde_json::to_string(&ResponseJson {data: "ok".to_string()}).unwrap())
+                                serde_json::to_string(&ResponseJson { data: "ok".to_string() }).unwrap())
                             ).await.unwrap();
                     },
                     Method::Jobs => {
                         if !authed {
-                            ()
+                            let error = serde_json::to_string(
+                                &ErrorResponseJson { error: ClientError::NoAuth, message: "User not authenticated".to_string() }
+                            ).unwrap();
+
+                            writer.send(Message::Text(error)).await.unwrap();
+                            break;
                         }
+
+                        writer.send(Message::Text(
+                                serde_json::to_string(&ResponseJson{ data: jobs.lock().await.deref() }).unwrap()
+                                )
+                            ).await.unwrap()
                     },
                 }
             },
@@ -176,7 +187,7 @@ async fn handle_connection(
     }
 }
 
-pub async fn run(server_addr: &str, profile: ProfileConfig, attacks: Arc<Mutex<Vec<Attack>>>) {
+pub async fn run(server_addr: &str, profile: ProfileConfig, jobs: Arc<Mutex<Vec<Job>>>) {
     let socket = TcpListener::bind(server_addr).await;
     let listener = socket.unwrap();
 
@@ -185,14 +196,14 @@ pub async fn run(server_addr: &str, profile: ProfileConfig, attacks: Arc<Mutex<V
     let profile_arc = Arc::new(profile);
 
     while let Ok((stream, client_addr)) = listener.accept().await {
-        let attacks_clone = Arc::clone(&attacks);
+        let jobs_clone = Arc::clone(&jobs);
         let profile_arc_clone = Arc::clone(&profile_arc);
 
         tokio::spawn(handle_connection(
                 stream, 
                 client_addr,
                 profile_arc_clone,
-                attacks_clone)
+                jobs_clone)
             );
     }
 }

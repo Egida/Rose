@@ -1,10 +1,11 @@
+import asyncio
 import json
-from websockets.sync import client as wsclient
+import websocket
 from enum import Enum
 
 class Method(Enum): 
     Auth        = 1 
-    ServerInfo  = 2 
+    Jobs        = 2 
 
 class ClientError(Enum):
     InvalidJsonFormat       = 1
@@ -13,17 +14,47 @@ class ClientError(Enum):
     Invalidusername         = 4
     InvalidPassword         = 5 
 
+class CError:
+    def __init__(self, type: ClientError, message: str) -> None:
+        self.type = type
+        self.message = message
+
+    def __str__(self) -> str:
+        return self.message
+
 class TeamServer:
-    def __init__(self, address: str, username: str, password: str) -> None:
+    def __init__(self, address: str, username: str, password: str, connect = True) -> None:
         self.address = address
         self.username = username
         self.password = password
 
-        self.stream = wsclient.connect(address)
+        self.ws = websocket.WebSocket()
 
+        if connect:
+            self.ws.connect(self.address)
+
+    def __empty__(): 
+        return TeamServer("", "", "", False)
+
+    def send2(self, method: Method, parameters = {}) -> int:
+        return self.ws.send(json.dumps({
+            "method": method,
+            "parameters": parameters
+        }))
+
+    def recv2(self) -> dict | CError:
+        data = self.ws.recv()
+        jsondata: dict = json.loads(data)
+        jsondata_error = jsondata.get("error")
+
+        if jsondata_error:
+            return CError(ClientError[jsondata_error], jsondata["message"])
+        else:
+            return jsondata
+       
     # Return: Nonetype means no errors
-    def auth(self) -> None | tuple[ClientError, str]:
-        self.stream.send(json.dumps(
+    def auth(self) -> None | CError:
+        self.ws.send(json.dumps(
             {
                 "method": Method.Auth.name, 
                 "parameters": {
@@ -33,12 +64,28 @@ class TeamServer:
             }
         ))
 
-        data = self.stream.recv()
+        data = self.recv2()
+
+        if not isinstance(data, CError):
+            return None
+
+        return data
+        
+    def get_jobs(self) -> list[dict] | CError:
+        self.ws.send(json.dumps({
+            "method": Method.Jobs.name,
+            "parameters": {}
+        }))
+
+        data = self.ws.recv()
+
         jsondata: dict = json.loads(data)
         jsondata_error = jsondata.get("error")
 
         if jsondata_error:
-            return (ClientError[jsondata_error], jsondata["message"])
+            return CError(ClientError[jsondata_error], jsondata["message"])
         else:
-            return None
-
+            return jsondata["data"] 
+    
+    def close(self):
+        self.ws.close()

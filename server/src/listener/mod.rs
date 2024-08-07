@@ -3,18 +3,18 @@ use tokio::sync::Mutex;
 
 use actix_web::{web, App, HttpServer};
 
-use crate::Attack;
+use crate::Job;
 
 mod routers;
 
-pub async fn run(server_addr: &str, attacks: Arc<Mutex<Vec<Attack>>>) {
+pub async fn run(server_addr: &str, jobs: Arc<Mutex<Vec<Job>>>) {
    println!("Webserver listening: {}", server_addr);
 
-   let attacks_webdata = web::Data::new(attacks);
+   let jobs_webdata = web::Data::new(jobs);
 
    HttpServer::new(move || {
        App::new()
-          .app_data(attacks_webdata.clone())
+          .app_data(jobs_webdata.clone())
          .route("/reg", web::get().to(routers::agent_register))
          .route("/target", web::get().to(routers::get_target))
    })

