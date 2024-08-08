@@ -1,0 +1,5 @@
+[env]
+"USER_AGENT" = "testagent" 
+
+[build]
+target = "x86_64-pc-windows-gnu"

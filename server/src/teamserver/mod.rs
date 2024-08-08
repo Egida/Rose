@@ -10,10 +10,9 @@ use serde_json::{self, Value};
 use futures::stream::StreamExt;
 
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::Mutex;
 use tokio_tungstenite::tungstenite::protocol::Message;
 
-use crate::{Job, ProfileConfig};
+use crate::{MAShared, ProfileConfig};
 
 #[derive(Debug, Serialize)]
 enum ClientError {
@@ -28,7 +27,8 @@ enum ClientError {
 #[derive(Serialize, Deserialize)]
 enum Method {
     Auth,
-    Jobs
+    Jobs,
+    ListAgents,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -67,8 +67,7 @@ fn auth(profile: Arc<ProfileConfig>, username: String, password: String) -> Resu
 async fn handle_connection(
         stream: TcpStream, 
         addr: SocketAddr,
-        profile: Arc<ProfileConfig>,
-        jobs: Arc<Mutex<Vec<Job>>>
+        shared: Arc<MAShared>,
     ) {
     println!("New connection: {}", addr);
     let mut authed = false;
@@ -79,7 +78,7 @@ async fn handle_connection(
     let (mut writer, mut reader) = ws_stream.split();
 
     while let Some(msg) = reader.next().await {
-        let profile_clone = Arc::clone(&profile);
+        let profile_clone = Arc::clone(&shared.profile);
         let msg = msg.unwrap();
 
         match msg {
@@ -172,9 +171,23 @@ async fn handle_connection(
                         }
 
                         writer.send(Message::Text(
-                                serde_json::to_string(&ResponseJson{ data: jobs.lock().await.deref() }).unwrap()
+                                serde_json::to_string(&ResponseJson{ data: shared.jobs.lock().await.deref() }).unwrap()
                                 )
                             ).await.unwrap()
+                    },
+                    Method::ListAgents => {
+                        if !authed {
+                            let error = serde_json::to_string(
+                                &ErrorResponseJson { error: ClientError::NoAuth, message: "User not authenticated".to_string() }
+                            ).unwrap();
+
+                            writer.send(Message::Text(error)).await.unwrap();
+                            break;
+                        }
+
+                        writer.send(Message::Text(
+                                serde_json::to_string(&ResponseJson { data: shared.agents.lock().await.deref() }).unwrap()
+                        )).await.unwrap();
                     },
                 }
             },
@@ -187,21 +200,19 @@ async fn handle_connection(
     }
 }
 
-pub async fn run(server_addr: &str, profile: Arc<ProfileConfig>, jobs: Arc<Mutex<Vec<Job>>>) {
+pub async fn run(server_addr: &str, shared: Arc<MAShared>) {
     let socket = TcpListener::bind(server_addr).await;
     let listener = socket.unwrap();
 
     println!("Teamserver listening on: {}", server_addr);
 
     while let Ok((stream, client_addr)) = listener.accept().await {
-        let jobs_clone = Arc::clone(&jobs);
-        let profile_clone = Arc::clone(&profile);
+        let shared_clone = Arc::clone(&shared);
 
         tokio::spawn(handle_connection(
                 stream, 
                 client_addr,
-                profile_clone,
-                jobs_clone)
+                shared_clone)
             );
     }
 }

@@ -17,11 +17,11 @@ def clear():
 
 
 PROFILE_TEMPLATE = """
-"address" = "{}"
+address = "{}"
 
 [credentials]
-"username" = "{}"
-"password" = "{}"
+username = "{}"
+password = "{}"
 """.strip()
 
 def create_new_profile() -> bool:

@@ -1,0 +1,3 @@
+[
+  {"directory": "/home/aniko/Documents/code/malware/rose/agent/", "command": "clang -target x86_64-pc-windows-gnu main.cpp", "file": "main.cpp"}
+]

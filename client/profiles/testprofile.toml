@@ -1,5 +1,5 @@
-"address" = "ws://127.0.0.1:5555"
+address = "ws://127.0.0.1:5555"
 
 [credentials]
-"username" = "test123"
-"password" = "SecurePassword1234"
+username = "test123"
+password = "SecurePassword1234"

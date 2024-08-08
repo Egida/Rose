@@ -1,7 +1,7 @@
 mod listener;
 mod teamserver;
 
-use std::{fs, io::Read, ops::Deref, sync::Arc};
+use std::{fs, io::Read, sync::Arc};
 
 use toml;
 
@@ -12,6 +12,8 @@ use tokio::sync::Mutex;
 
 const TEAMSERVER_ADDR: &str = "127.0.0.1:5555";
 const LISTENER_ADDR: &str = "127.0.0.1:8000";
+
+type ArcMutexVec<T> = Arc<Mutex<Vec<T>>>;
 
 #[derive(Deserialize)]
 struct ProfileConfig {
@@ -37,6 +39,22 @@ struct Job {
     agents: isize,
 }
 
+#[derive(Serialize)]
+struct Agent {
+    addr: String,
+    os: String,
+    elevated: bool,
+    sleep: f32,
+    jitter: f32,
+    last_ping: f32,
+}
+
+struct MAShared {
+    profile: Arc<ProfileConfig>,
+    jobs: ArcMutexVec<Job>, 
+    agents: ArcMutexVec<Agent>, 
+}
+
 // TODO: add commands like: list etc.
 
 #[tokio::main]
@@ -53,12 +71,14 @@ async fn main() -> Result<(), std::io::Error> {
     // Spawning tasks
 
     let jobs: Arc<Mutex<Vec<Job>>> = Arc::new(Mutex::new(Vec::new()));
+    let agents: Arc<Mutex<Vec<Agent>>> = Arc::new(Mutex::new(Vec::new()));
 
-    let jobs_clone = Arc::clone(&jobs);
-    let config_parsed_arc_clone = Arc::clone(&config_parsed_arc);
+    let shared = MAShared { profile: config_parsed_arc, jobs, agents };
+    let shared_arc = Arc::new(shared);
+    let shared_arc_clone = Arc::clone(&shared_arc);
 
-    let teamserver_task = tokio::task::spawn( async { teamserver::run(TEAMSERVER_ADDR, config_parsed_arc, jobs_clone).await } );
-    let listener_task = tokio::task::spawn( async { listener::run(LISTENER_ADDR, config_parsed_arc_clone, jobs).await } );
+    let teamserver_task = tokio::task::spawn( async { teamserver::run(TEAMSERVER_ADDR, shared_arc).await } );
+    let listener_task = tokio::task::spawn( async { listener::run(LISTENER_ADDR, shared_arc_clone).await } );
 
     // Joining tasks
 

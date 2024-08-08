@@ -6,6 +6,7 @@ from enum import Enum
 class Method(Enum): 
     Auth        = 1 
     Jobs        = 2 
+    ListAgents  = 3
 
 class ClientError(Enum):
     InvalidJsonFormat       = 1
@@ -13,6 +14,7 @@ class ClientError(Enum):
     NotFoundJsonParameter   = 3 
     Invalidusername         = 4
     InvalidPassword         = 5 
+    NoAuth                  = 6 
 
 class CError:
     def __init__(self, type: ClientError, message: str) -> None:
@@ -74,6 +76,22 @@ class TeamServer:
     def get_jobs(self) -> list[dict] | CError:
         self.ws.send(json.dumps({
             "method": Method.Jobs.name,
+            "parameters": {}
+        }))
+
+        data = self.ws.recv()
+
+        jsondata: dict = json.loads(data)
+        jsondata_error = jsondata.get("error")
+
+        if jsondata_error:
+            return CError(ClientError[jsondata_error], jsondata["message"])
+        else:
+            return jsondata["data"] 
+
+    def get_agents(self) -> list[dict] | CError:
+        self.ws.send(json.dumps({
+            "method": Method.ListAgents.name,
             "parameters": {}
         }))
 

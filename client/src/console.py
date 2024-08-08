@@ -7,6 +7,7 @@ import commands
 
 COMMANDS: dict[str, Callable] = {
     "jobs": commands.jobs,
+    "list": commands.listagents,
     "quit": commands.quit,
 }
 
