@@ -19,15 +19,25 @@ fn main() {
 
     let agent_info = AgentInfo { os: "Windows".to_string(), elevated: false };
 
-    let r = client.post("http://127.0.0.1:8000/reg")
-        .header("user-agent",USER_AGENT)
+    let mut r = client.post("http://127.0.0.1:8000/reg")
+        .header("user-agent", USER_AGENT)
         .header("Content-Type", "application/json")
         .body(serde_json::to_string(&agent_info).unwrap())
         .send()
         .unwrap();
-    
+
     dbg!(USER_AGENT);
-    dbg!(r.status());
-    dbg!(r.text().unwrap());
+    dbg!(&r.status());
+
+    let uuid = r.text().unwrap();
+    
+    loop {
+        // TEST:
+        std::thread::sleep(std::time::Duration::from_secs(5));
+        r = client.get("http://127.0.0.1/ping")
+            .query(&["uuid", &uuid])
+            .send()
+            .unwrap()
+    }
 }
 

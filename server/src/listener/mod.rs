@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use actix_web::{web, App, HttpServer};
+use axum::{routing::{get, post}, Router};
 
 use crate::MAShared;
 
@@ -9,18 +9,9 @@ mod routers;
 pub async fn run(server_addr: &str, shared: Arc<MAShared>) {
    println!("Webserver listening: {}", server_addr);
 
-   let shared_webdata = web::Data::new(shared);
-
-   HttpServer::new(move || {
-       App::new()
-          .app_data(shared_webdata.clone())
-         .route("/reg", web::post().to(routers::agent_register))
-         .route("/target", web::get().to(routers::get_target))
-   })
-   .disable_signals()
-   .bind(server_addr)
-      .unwrap()
-      .run()
-      .await
-      .unwrap();
+   let app = Router::new()
+      .with_state(shared)
+      .route("/reg", post(routers::agent_register))
+      .route("/target", get(routers::get_target))
+      .route("/ping", get(routers::ping));
 }

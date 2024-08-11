@@ -41,12 +41,13 @@ struct Job {
 
 #[derive(Serialize)]
 struct Agent {
+    uuid: String,
     addr: String,
     os: String,
     elevated: bool,
     sleep: f32,
     jitter: f32,
-    last_ping: f32,
+    last_ping: i64,
 }
 
 struct MAShared {
