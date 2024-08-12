@@ -1,4 +1,5 @@
 import sys
+import datetime
 
 from stone_color import tables
 from stone_color import processbar
@@ -8,6 +9,31 @@ from teamserver import CError, TeamServer
 
 global ts
 ts: TeamServer = TeamServer.__empty__() 
+
+class Agent:
+    def __init__(
+        self,
+        uuid: str,
+        addr: str,
+        os: str,
+        elevated: bool,
+        sleep: float,
+        jitter: float,
+        last_ping: float,
+        ) -> None:
+        self.uuid       = uuid
+        self.addr       = addr
+        self.os         = os
+        self.elevated   = bool(elevated)
+        self.sleep      = sleep
+        self.jitter     = jitter
+        self.last_ping  = int(datetime.datetime.today().timestamp() - float(last_ping))
+    
+    def get_values(self) -> list[str]:
+        return list(map(str, [self.uuid, self.addr, self.os, self.elevated, formatf(self.sleep, "s", sep=""), formatf(self.jitter, "%", sep=""), formatf(self.last_ping, "s", sep="")]))
+
+    def get_keys() -> list:
+        return ["UUID", "Addr", "OS", "Elevated", "Sleep", "Jitter", "Last ping"]
 
 def init(_ts: TeamServer):
     global ts
@@ -34,13 +60,15 @@ def listagents():
     elif len(agents) <= 0:
         errorf("No active agents found")
     else:
-        headers = list(map(str.capitalize, list(agents[0].keys())))
+        headers = list(Agent.get_keys())
         data = []
-        for attack in agents:
-            data.append(list(attack.values()))
+        for agent in agents:
+            agent = Agent(*agent.values())
+            data.append(
+                agent.get_values()
+            )
         
         printf("\n", tables.ascii_table(headers, data), sep="")
-
 
 def quit():
     ts.close()

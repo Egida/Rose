@@ -1,14 +1,12 @@
-use std::{collections::HashMap, net::SocketAddr, ops::DerefMut, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, ops::Deref, sync::Arc};
 
 use chrono;
 use serde::Deserialize;
-use uuid::Uuid;
+use uuid::{NoContext, Timestamp, Uuid};
 use axum::{
     extract::{ConnectInfo, Json, Query, State},
     http::{HeaderMap, StatusCode},
-    debug_handler
 };
-
 
 use crate::{Agent, MAShared};
 
@@ -18,7 +16,6 @@ pub struct AgentInfo {
     elevated: bool
 }
 
-#[debug_handler]
 pub async fn agent_register(
         hs: HeaderMap,
         ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -28,7 +25,7 @@ pub async fn agent_register(
     let user_agent = hs.get("user-agent").unwrap();
 
     if shared.profile.agents.allowed.iter().any(|v| v == user_agent) {
-        let uuid = Uuid::new_v4().to_string();
+        let uuid = Uuid::new_v7(Timestamp::now(NoContext)).to_string();
 
         shared.agents.lock().await.push(Agent { 
             uuid: uuid.clone(),
@@ -46,26 +43,24 @@ pub async fn agent_register(
     }
 }
 
-pub async fn ping(
-        Query(params): Query<HashMap<String, String>>,
-        State(shared): State<Arc<MAShared>>
-    ) -> StatusCode {
-    let mut status_code = StatusCode::BAD_REQUEST;
+pub async fn get_target(
+    Query(params): Query<HashMap<String, String>>,
+    State(shared): State<Arc<MAShared>>,
+) -> Result<String, StatusCode> {
     let uuid = match params.get("uuid") {
         Some(r) => r,
-        None => return StatusCode::BAD_REQUEST
+        None => return Err(StatusCode::BAD_REQUEST)
     };
 
-    for  agent in shared.agents.lock().await.deref_mut() {
-        if agent.uuid.eq(uuid) {
-            agent.last_ping = chrono::Local::now().timestamp();
-            status_code = StatusCode::OK
-        }
-    }
+    let mut shared_guard = shared.agents.lock().await;
+    let agent = shared_guard.iter_mut().find(|v| v.uuid.eq(uuid));
 
-    status_code
-}
+    let agent = match agent {
+        Some(r) => r,
+        None => return Err(StatusCode::NON_AUTHORITATIVE_INFORMATION)
+    };
 
-pub async fn get_target() -> String {
-    "Hello world".to_string()
+
+    agent.last_ping = chrono::Local::now().timestamp();
+    return Ok(serde_json::to_string(shared.jobs.lock().await.deref()).unwrap());
 }

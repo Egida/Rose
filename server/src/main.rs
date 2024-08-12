@@ -4,7 +4,6 @@ mod teamserver;
 use std::{fs, io::Read, sync::Arc};
 
 use toml;
-
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
 

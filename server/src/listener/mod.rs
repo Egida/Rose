@@ -1,6 +1,7 @@
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 use axum::{routing::{get, post}, Router};
+use tokio::net::TcpListener;
 
 use crate::MAShared;
 
@@ -10,8 +11,10 @@ pub async fn run(server_addr: &str, shared: Arc<MAShared>) {
    println!("Webserver listening: {}", server_addr);
 
    let app = Router::new()
-      .with_state(shared)
       .route("/reg", post(routers::agent_register))
       .route("/target", get(routers::get_target))
-      .route("/ping", get(routers::ping));
+      .with_state(shared);
+
+   let listener = TcpListener::bind(server_addr).await.unwrap();
+   axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
 }
