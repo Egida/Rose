@@ -1,7 +1,7 @@
 mod listener;
 mod teamserver;
 
-use std::{fs, io::Read, sync::Arc};
+use std::{fs, io::Read, str::FromStr, sync::Arc};
 
 use toml;
 use serde::{Serialize, Deserialize};
@@ -25,10 +25,22 @@ struct ProfileAgents {
     allowed: Vec<String>
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, PartialEq)]
 enum AttackMethod { 
     HTTP,
     UDP
+}
+
+impl FromStr for AttackMethod {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "HTTP" => Ok(AttackMethod::HTTP),
+            "UDP" => Ok(AttackMethod::UDP),
+            _ => Err(())
+        }
+        
+    }
 }
 
 #[derive(Serialize)]

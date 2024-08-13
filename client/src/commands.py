@@ -39,7 +39,24 @@ def init(_ts: TeamServer):
     global ts
     ts = _ts
 
-def jobs():
+def add_job(*args):
+    if len(args) <= 2:
+        printf("{} <method> <target>".format(args[0]))
+        return 
+
+    method = args[1]
+    target = args[2]
+
+    data = ts.send_job(method, target)
+    if isinstance(data, CError):
+        errorf(data)
+
+#  TODO: get methods and show it
+def methods(*_):
+    ...
+
+
+def jobs(*_):
     js = ts.get_jobs()
     if isinstance(js, CError):
         errorf(js)
@@ -53,7 +70,7 @@ def jobs():
         
         printf("\n", tables.ascii_table(headers, data), sep="")
 
-def listagents():
+def listagents(*_):
     agents = ts.get_agents()
     if isinstance(agents, CError):
         errorf(agents)
@@ -70,6 +87,6 @@ def listagents():
         
         printf("\n", tables.ascii_table(headers, data), sep="")
 
-def quit():
+def quit(*_):
     ts.close()
     sys.exit(0)

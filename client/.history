@@ -32,3 +32,36 @@ jobs
 exit
 ls
 quit
+addc
+quit
+create_attack
+create_attack 
+quit
+list
+create_attack
+create_attack a
+create_attack a a
+quit
+create_attack
+create_attack HTTP 127.0.0.1:8000
+create_attack HTT 127.0.0.1:8000
+create_attack
+create_attack HTT 127.0.0.1:8000
+a
+create_attack HTT 127.0.0.1:8000
+]
+quit
+create_attack HTT 127.0.0.1:8000
+quit
+create_attack 
+create_attack HTT 127.0.0.1:8000
+create_attack HTTP 127.0.0.1:8000
+create_attack HTT 127.0.0.1:8000
+create_attack HTTP 127.0.0.1:8000
+create_attack HTT 127.0.0.1:8000
+create_attack HTTP 127.0.0.1:8000
+jobs
+create_attack HTP 127.0.0.1:8000
+create_attack HTTP 127.0.0.1:8000
+create_attack HTT\ 127.0.0.1:8000
+create_attack HTTP 127.0.0.1:8000

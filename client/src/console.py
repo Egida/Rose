@@ -9,6 +9,7 @@ import commands
 
 COMMANDS: dict[str, Callable] = {
     "jobs": commands.jobs,
+    "create_attack": commands.add_job,
     "list": commands.listagents,
     "quit": commands.quit,
 }
@@ -50,7 +51,7 @@ def run(ts: teamserver.TeamServer):
             readline.write_history_file(HISTORY_PATH)
 
             if prompt[0] in list(COMMANDS.keys()):
-                COMMANDS[prompt[0]]()
+                COMMANDS[prompt[0]](*prompt)
 
         except KeyboardInterrupt:
             if len(readline.get_line_buffer()) <= 0:
