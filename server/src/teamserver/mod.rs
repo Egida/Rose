@@ -26,7 +26,7 @@ enum ClientError {
     InvalidAttackMethod
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 enum Method {
     Auth,
     Jobs,
@@ -34,7 +34,7 @@ enum Method {
     AddJob,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 struct RequestJson<T> {
     method: Method,
     parameters: HashMap<String, T>
@@ -116,115 +116,103 @@ async fn handle_connection(
                     }
                 };
 
-                match msgjson.method {
-                    Method::Auth => {
-                        let username = match find_parameter_json(msgjson.parameters.to_owned(), "username") {
-                            Ok(r) => r,
-                            Err(e) => {
-                                writer.send(Message::Text(serde_json::to_string(&e).unwrap())).await.unwrap();
-                                break;
-                            }
-                        };
-                        let password = match find_parameter_json(msgjson.parameters, "password") {
-                            Ok(r) => r,
-                            Err(e) => {
-                                writer.send(Message::Text(serde_json::to_string(&e).unwrap())).await.unwrap();
-                                break;
-                            }
-                        };
+                dbg!(&msgjson);
 
-                        match auth(profile_clone, username, password) {
-                            Ok(_) => authed = true,
-                            Err(e) => {
-                                let message = match e {
-                                    ClientError::Invalidusername => "Invalid username".to_string(),
-                                    ClientError::InvalidPassword => "Invalid password".to_string(),
-                                    _ => panic!("Case not covered")
-                                };
-
-                                let error = serde_json::to_string(
-                                    &ErrorResponseJson { error: e, message: message.to_string() }
-                                );
-
-                                writer.send(Message::Text(error.unwrap())).await.unwrap();
-                                break;
-                            }
+                if let Method::Auth = msgjson.method {
+                    let username = match find_parameter_json(msgjson.parameters.to_owned(), "username") {
+                        Ok(r) => r,
+                        Err(e) => {
+                            writer.send(Message::Text(serde_json::to_string(&e).unwrap())).await.unwrap();
+                            break
                         }
+                    };
+                    let password = match find_parameter_json(msgjson.parameters.to_owned(), "password") {
+                        Ok(r) => r,
+                        Err(e) => {
+                            writer.send(Message::Text(serde_json::to_string(&e).unwrap())).await.unwrap();
+                            break
+                        }
+                    };
 
-                        writer.send(Message::Text(
+                    match auth(profile_clone, username, password) {
+                        Ok(_) => authed = true,
+                        Err(e) => {
+                            let message = match e {
+                                ClientError::Invalidusername => "Invalid username".to_string(),
+                                ClientError::InvalidPassword => "Invalid password".to_string(),
+                                _ => panic!("Case not covered")
+                            };
+
+                            let error = serde_json::to_string(
+                                &ErrorResponseJson { error: e, message: message.to_string() }
+                            );
+
+                            writer.send(Message::Text(error.unwrap())).await.unwrap();
+                            break
+                        }
+                    }
+
+                    writer.send(Message::Text(
+                            serde_json::to_string(&ResponseJson { data: "ok" }).unwrap())
+                    ).await.unwrap();
+
+                } else {
+                    if !authed {
+                        let error = serde_json::to_string(
+                            &ErrorResponseJson { error: ClientError::NoAuth, message: "User not authenticated".to_string() }
+                        ).unwrap();
+
+                        writer.send(Message::Text(error)).await.unwrap();
+                    }
+
+                    match msgjson.method {
+                        Method::Auth => (),
+                        Method::Jobs => {
+                            writer.send(Message::Text(
+                                    serde_json::to_string(&ResponseJson{ data: shared.jobs.lock().await.deref() }).unwrap()
+                                    )
+                                ).await.unwrap()
+                        },
+                        Method::ListAgents => {
+                            writer.send(Message::Text(
+                                    serde_json::to_string(&ResponseJson { data: shared.agents.lock().await.deref() }).unwrap()
+                            )).await.unwrap();
+                        },
+                        Method::AddJob => 'c: {
+                            let target = match find_parameter_json(msgjson.parameters.to_owned(), "target") {
+                                Ok(r) => r,
+                                Err(e) => {
+                                    writer.send(Message::Text(serde_json::to_string(&e).unwrap())).await.unwrap();
+                                    break 'c
+                                }
+                            };
+
+                            let method = match find_parameter_json(msgjson.parameters, "method") {
+                                Ok(r) => {
+                                    if let Ok(am) = AttackMethod::from_str(&r) {
+                                        am
+                                    } else {
+                                        let error = serde_json::to_string(
+                                                &ErrorResponseJson { error: ClientError::InvalidAttackMethod, message: "Invalid attack method".to_string() }
+                                            ).unwrap();
+                                        writer.send(Message::Text(error)).await.unwrap();
+                                        break 'c
+                                    }
+                                },
+                                Err(e) => {
+                                    writer.send(Message::Text(serde_json::to_string(&e).unwrap())).await.unwrap();
+                                    break 'c
+                                }
+                            };
+
+                            let new_job = Job { target, method, agents: 0 };
+                            shared.jobs.lock().await.push(new_job);
+
+                            writer.send(Message::Text(
                                 serde_json::to_string(&ResponseJson { data: "ok" }).unwrap())
                             ).await.unwrap();
-                    },
-                    Method::Jobs => {
-                        if !authed {
-                            let error = serde_json::to_string(
-                                &ErrorResponseJson { error: ClientError::NoAuth, message: "User not authenticated".to_string() }
-                            ).unwrap();
-
-                            writer.send(Message::Text(error)).await.unwrap();
-                            break;
-                        }
-
-                        writer.send(Message::Text(
-                                serde_json::to_string(&ResponseJson{ data: shared.jobs.lock().await.deref() }).unwrap()
-                                )
-                            ).await.unwrap()
-                    },
-                    Method::ListAgents => {
-                        if !authed {
-                            let error = serde_json::to_string(
-                                &ErrorResponseJson { error: ClientError::NoAuth, message: "User not authenticated".to_string() }
-                            ).unwrap();
-
-                            writer.send(Message::Text(error)).await.unwrap();
-                            break;
-                        }
-
-                        writer.send(Message::Text(
-                                serde_json::to_string(&ResponseJson { data: shared.agents.lock().await.deref() }).unwrap()
-                        )).await.unwrap();
-                    },
-                    Method::AddJob => {
-                        if !authed {
-                            let error = serde_json::to_string(
-                                &ErrorResponseJson { error: ClientError::NoAuth, message: "User not authenticated".to_string() }
-                            ).unwrap();
-
-                            writer.send(Message::Text(error)).await.unwrap();
-                            break;
-                        }
-
-                        let target = match find_parameter_json(msgjson.parameters.to_owned(), "target") {
-                            Ok(r) => r,
-                            Err(e) => {
-                                writer.send(Message::Text(serde_json::to_string(&e).unwrap())).await.unwrap();
-                                break;
-                            }
-                        };
-
-                        let method = match find_parameter_json(msgjson.parameters, "method") {
-                            Ok(r) => {
-                                if let Ok(am) = AttackMethod::from_str(&r) {
-                                    am
-                                } else {
-                                    let error = serde_json::to_string(
-                                            &ErrorResponseJson { error: ClientError::InvalidAttackMethod, message: "Invalid attack method".to_string() }
-                                        ).unwrap();
-                                    writer.send(Message::Text(error)).await.unwrap();
-                                    break; 
-                                }
-                            },
-                            Err(e) => {
-                                writer.send(Message::Text(serde_json::to_string(&e).unwrap())).await.unwrap();
-                                break;
-                            }
-                        };
-
-                        let new_job = Job { target, method, agents: 0 };
-                        shared.jobs.lock().await.push(new_job);
-
-                        writer.send(Message::Text(serde_json::to_string(&ResponseJson { data: "ok" } ).unwrap())).await.unwrap();
-                    },  
+                        },  
+                    }
                 }
             }
             Message::Binary(_data) => (),

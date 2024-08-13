@@ -41,7 +41,7 @@ class TeamServer:
 
     def send2(self, method: Method, parameters = {}) -> int:
         return self.ws.send(json.dumps({
-            "method": method,
+            "method": method.name,
             "parameters": parameters
         }))
 
@@ -90,15 +90,8 @@ class TeamServer:
 
         return self.recv2()
 
-    #  FIX: crash on: sending With an invalid method then immediately after a valid method 
-    def send_job(self, method: str, target: str):
-        self.ws.send(json.dumps({
-            "method": Method.AddJob.name,
-            "parameters": {
-                "method": method,
-                "target": target
-            }
-        }))
+    def send_job(self, method: str, target: str) -> list[dict] | CError:
+        self.send2(Method.AddJob, {"method": method, "target": target})
 
         return self.recv2()
     
