@@ -32,8 +32,8 @@ pub async fn agent_register(
             addr: addr.to_string(),
             os: agent_info.os.clone(),
             elevated: agent_info.elevated,
-            sleep: 10.0, // TODO: Use a defualt value
-            jitter: 0.0, // TODO: 
+            sleep: shared.profile.agents.sleep,
+            jitter: shared.profile.agents.jitter, 
             last_ping: chrono::Local::now().timestamp()
         });
 

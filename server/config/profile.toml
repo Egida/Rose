@@ -1,5 +1,7 @@
 [agents]
 allowed = ["Opera/9.80 (Macintosh; Intel Mac OS X; U; en) Presto/2.2.15 Version/10.00"]
+sleep = 10.0
+jitter = 2.0
 
 [users]
 "test123" = "SecurePassword1234"

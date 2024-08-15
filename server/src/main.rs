@@ -22,7 +22,9 @@ struct ProfileConfig {
 
 #[derive(Deserialize)]
 struct ProfileAgents {
-    allowed: Vec<String>
+    allowed: Vec<String>,
+    sleep: f64,
+    jitter: f32
 }
 
 #[derive(Serialize, PartialEq)]
@@ -56,7 +58,7 @@ struct Agent {
     addr: String,
     os: String,
     elevated: bool,
-    sleep: f32,
+    sleep: f64,
     jitter: f32,
     last_ping: i64,
 }
@@ -67,7 +69,7 @@ struct MAShared {
     agents: ArcMutexVec<Agent>, 
 }
 
-// TODO: add commands like: list etc.
+// TODO: Add: agent building
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
