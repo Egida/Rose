@@ -1,7 +1,6 @@
 import inquirer
 import getpass
 import tomllib
-import asyncio
 import os
 
 from stone_color.messages import *

